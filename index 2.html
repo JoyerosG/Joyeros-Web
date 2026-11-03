@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Joyeros González</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Karla:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root { --bg:#f2f3f1; --surface:#fff; --ink:#14211f; --muted:#5f6a68; --line:#d6dad8; --gold:#8a6a22; --btn:#14211f; --btn-ink:#fff; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#101716; --surface:#18211f; --ink:#ecebe6; --muted:#9aa5a2; --line:#2c3836; --gold:#d2ad5c; --btn:#d2ad5c; --btn-ink:#101716; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:Karla,system-ui,sans-serif; line-height:1.5; }
+  header { max-width:1000px; margin:0 auto; padding:56px 20px 28px; }
+  h1 { font-family:"Cormorant Garamond",Georgia,serif; font-weight:600; font-size:clamp(2.6rem,9vw,4.6rem); line-height:1; margin:0; letter-spacing:.01em; }
+  header p { color:var(--muted); margin:14px 0 0; max-width:34ch; font-size:1.05rem; }
+  nav { max-width:1000px; margin:0 auto; padding:0 20px 20px; display:flex; gap:8px; }
+  nav button { background:transparent; color:var(--ink); border:1px solid var(--line); margin:0; padding:8px 16px; }
+  nav button[aria-pressed="true"] { background:var(--ink); color:var(--bg); border-color:var(--ink); }
+  main { max-width:1000px; margin:0 auto; padding:0 16px 130px; }
+  #lista { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:16px; }
+  .pieza { background:var(--surface); border:1px solid var(--line); border-radius:4px; display:flex; flex-direction:column; }
+  .foto { aspect-ratio:1; background:var(--line); display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:.85rem; }
+  .foto img { width:100%; height:100%; object-fit:cover; }
+  .info { padding:16px; display:flex; flex-direction:column; gap:6px; flex:1; }
+  h2 { font-family:"Cormorant Garamond",Georgia,serif; font-size:1.5rem; margin:0; line-height:1.15; }
+  .desc { color:var(--muted); font-size:.9rem; margin:0; flex:1; }
+  .quil { display:flex; gap:6px; flex-wrap:wrap; margin-top:4px; }
+  .quil button { margin:0; padding:6px 12px; background:transparent; color:var(--ink); border:1px solid var(--line); font-size:.9rem; }
+  .quil button[aria-pressed="true"] { border-color:var(--gold); color:var(--gold); box-shadow:inset 0 0 0 1px var(--gold); }
+  .precio { font-size:1.15rem; font-weight:600; margin-top:6px; }
+  .stock { font-size:.8rem; color:var(--muted); }
+  button { font:inherit; cursor:pointer; border:0; border-radius:3px; padding:11px 14px; background:var(--btn); color:var(--btn-ink); font-weight:600; margin-top:8px; }
+  button:disabled { opacity:.4; cursor:not-allowed; }
+  button:focus-visible { outline:3px solid var(--gold); outline-offset:2px; }
+  #carrito { position:fixed; left:0; right:0; bottom:0; background:var(--surface); border-top:1px solid var(--line); padding:12px 16px; display:none; align-items:center; justify-content:space-between; gap:12px; }
+  #carrito.visible { display:flex; }
+  #carrito button { margin:0; }
+  #msg { text-align:center; color:var(--muted); padding:40px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Joyeros González</h1>
+  <p>Oro de catálogo y diamantes en medidas estándar.</p>
+</header>
+<nav id="filtros" aria-label="Categorías">
+  <button data-cat="todo" aria-pressed="true">Todo</button>
+  <button data-cat="oro" aria-pressed="false">Oro</button>
+  <button data-cat="diamantes" aria-pressed="false">Diamantes</button>
+</nav>
+<main>
+  <div id="msg">Cargando piezas…</div>
+  <div id="lista"></div>
+</main>
+<div id="carrito">
+  <span id="resumen"></span>
+  <button id="btn-comprar">Comprar</button>
+</div>
+
+<script>
+  var SUPABASE_URL = "https://wppvzacfeqhrrjwuibmg.supabase.co";
+  var SUPABASE_KEY = "sb_publishable_s62dCxrPV1F0sZE_eVgBCw_UbMCg46i";
+
+  var piezas = [], grupos = [], carrito = {}, categoria = "todo";
+
+  function dinero(n) { return Number(n).toLocaleString("es-MX", { style: "currency", currency: "MXN" }); }
+  function nombreQuilates(q) { return q + " ct"; }
+
+  function agruparPiezas() {
+    var mapa = {};
+    grupos = [];
+    piezas.forEach(function (p) {
+      p.categoria = p.categoria || "oro";
+      var clave = p.categoria + "|" + p.nombre;
+      if (!mapa[clave]) { mapa[clave] = { nombre: p.nombre, categoria: p.categoria, opciones: [] }; grupos.push(mapa[clave]); }
+      mapa[clave].opciones.push(p);
+    });
+    grupos.forEach(function (g) {
+      g.opciones.sort(function (a, b) { return (a.quilates || 0) - (b.quilates || 0); });
+    });
+  }
+
+  function crearTarjeta(g) {
+    var sel = g.opciones[0];
+    var el = document.createElement("article");
+    el.className = "pieza";
+    var foto = document.createElement("div"); foto.className = "foto";
+    var info = document.createElement("div"); info.className = "info";
+    var h = document.createElement("h2"); h.textContent = g.nombre;
+    var d = document.createElement("p"); d.className = "desc";
+    var quil = document.createElement("div"); quil.className = "quil";
+    var pr = document.createElement("div"); pr.className = "precio";
+    var st = document.createElement("div"); st.className = "stock";
+    var b = document.createElement("button"); b.textContent = "Agregar al carrito";
+    b.addEventListener("click", function () { agregar(sel); });
+
+    function pintar() {
+      foto.textContent = "";
+      if (sel.foto_url) { var i = document.createElement("img"); i.src = sel.foto_url; i.alt = g.nombre; foto.appendChild(i); }
+      else foto.textContent = "Sin foto";
+      d.textContent = sel.descripcion || "";
+      pr.textContent = dinero(sel.precio);
+      st.textContent = sel.stock > 0 ? "Disponibles: " + sel.stock : "Agotada";
+      b.disabled = sel.stock < 1;
+      Array.prototype.forEach.call(quil.children, function (btn, idx) {
+        btn.setAttribute("aria-pressed", g.opciones[idx] === sel ? "true" : "false");
+      });
+    }
+
+    if (g.opciones.length > 1 || g.opciones[0].quilates) {
+      g.opciones.forEach(function (o) {
+        var qb = document.createElement("button");
+        qb.textContent = nombreQuilates(o.quilates);
+        qb.addEventListener("click", function () { sel = o; pintar(); });
+        quil.appendChild(qb);
+      });
+    }
+    info.append(h, d);
+    if (quil.children.length) info.appendChild(quil);
+    info.append(pr, st, b);
+    el.append(foto, info);
+    pintar();
+    return el;
+  }
+
+  function mostrar() {
+    var lista = document.getElementById("lista");
+    lista.textContent = "";
+    grupos.filter(function (g) { return categoria === "todo" || g.categoria === categoria; })
+      .forEach(function (g) { lista.appendChild(crearTarjeta(g)); });
+    if (!lista.children.length) lista.textContent = "No hay piezas en esta categoría.";
+  }
+
+  function agregar(p) {
+    var actual = carrito[p.id] || 0;
+    if (actual >= p.stock) return;
+    carrito[p.id] = actual + 1;
+    actualizarCarrito();
+  }
+
+  function actualizarCarrito() {
+    var total = 0, cuenta = 0;
+    piezas.forEach(function (p) { var c = carrito[p.id] || 0; total += c * p.precio; cuenta += c; });
+    document.getElementById("carrito").classList.toggle("visible", cuenta > 0);
+    document.getElementById("resumen").textContent = cuenta + (cuenta === 1 ? " pieza · " : " piezas · ") + dinero(total);
+  }
+
+  document.getElementById("btn-comprar").addEventListener("click", function () {
+    alert("El pago se conectará en un siguiente paso.");
+  });
+
+  document.getElementById("filtros").addEventListener("click", function (e) {
+    var cat = e.target.getAttribute("data-cat");
+    if (!cat) return;
+    categoria = cat;
+    Array.prototype.forEach.call(this.children, function (b) {
+      b.setAttribute("aria-pressed", b.getAttribute("data-cat") === cat ? "true" : "false");
+    });
+    mostrar();
+  });
+
+  async function cargar() {
+    var msg = document.getElementById("msg");
+    try {
+      var url = SUPABASE_URL + "/rest/v1/piezas?select=*&activa=eq.true&order=created_at.asc";
+      var res = await fetch(url, { headers: { apikey: SUPABASE_KEY } });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      piezas = await res.json();
+      if (!piezas.length) { msg.textContent = "Aún no hay piezas disponibles."; return; }
+      msg.remove();
+      agruparPiezas();
+      mostrar();
+    } catch (e) {
+      msg.textContent = "No se pudo cargar el catálogo. Intenta de nuevo en unos minutos.";
+      console.error(e);
+    }
+  }
+  cargar();
+</script>
+</body>
+</html>
