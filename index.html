@@ -47,6 +47,16 @@
   button { font:inherit; cursor:pointer; border:0; border-radius:2px; padding:11px 14px; background:var(--ink); color:var(--bg); font-weight:600; margin-top:6px; }
   button:disabled { opacity:.4; cursor:not-allowed; }
   button:focus-visible, .cta:focus-visible { outline:3px solid var(--gold); outline-offset:2px; }
+  dialog { border:1px solid var(--line); border-radius:4px; background:var(--surface); color:var(--ink); padding:22px; width:min(92vw,420px); }
+  dialog::backdrop { background:rgba(0,0,0,.55); }
+  dialog h3 { font-family:"Cormorant Garamond",Georgia,serif; font-size:1.6rem; margin:0 0 4px; }
+  dialog label { display:block; font-size:.85rem; color:var(--muted); margin-top:12px; }
+  dialog input, dialog textarea { width:100%; font:inherit; padding:10px; border:1px solid var(--line); border-radius:3px; background:var(--bg); color:var(--ink); margin-top:4px; }
+  dialog .fila { display:flex; gap:8px; }
+  dialog .fila button { flex:1; }
+  dialog .sec { background:transparent; color:var(--ink); border:1px solid var(--line); }
+  #err { color:#b3261e; font-size:.9rem; min-height:1.2em; margin-top:10px; }
+  #msg-ok { padding:8px 0; }
   main { padding-bottom:130px; }
   footer { text-align:center; color:var(--muted); font-size:.85rem; padding:40px 16px 140px; }
   #carrito { position:fixed; left:0; right:0; bottom:0; background:var(--surface); border-top:1px solid var(--line); padding:12px 16px; display:none; align-items:center; justify-content:space-between; gap:12px; }
@@ -75,6 +85,28 @@
   </section>
 </main>
 <footer>Joyeros González · México</footer>
+<dialog id="dlg">
+  <div id="paso-form">
+    <h3>Finalizar compra</h3>
+    <div id="dlg-total" class="stock"></div>
+    <form id="form-compra">
+      <label>Nombre completo<input id="f-nombre" required maxlength="120" autocomplete="name"></label>
+      <label>Teléfono / WhatsApp<input id="f-tel" required type="tel" maxlength="30" autocomplete="tel"></label>
+      <label>Dirección de entrega<textarea id="f-dir" required rows="3" maxlength="300" autocomplete="street-address"></textarea></label>
+      <div id="err" role="alert"></div>
+      <div class="fila">
+        <button type="button" class="sec" id="f-cancelar">Cancelar</button>
+        <button type="submit" id="f-enviar">Confirmar pedido</button>
+      </div>
+      <div class="stock" style="margin-top:10px">Pago simulado: por ahora no se cobra nada.</div>
+    </form>
+  </div>
+  <div id="paso-ok" hidden>
+    <h3>¡Pedido recibido!</h3>
+    <p id="msg-ok"></p>
+    <button id="ok-cerrar">Cerrar</button>
+  </div>
+</dialog>
 <div id="carrito"><span id="resumen"></span><button id="btn-comprar">Comprar</button></div>
 
 <script>
@@ -185,10 +217,45 @@
     document.getElementById("carrito").classList.toggle("visible", cuenta > 0);
     document.getElementById("resumen").textContent = cuenta + (cuenta === 1 ? " pieza · " : " piezas · ") + dinero(total);
   }
-  document.getElementById("btn-comprar").addEventListener("click", function () { alert("El pago se conectará en un siguiente paso."); });
+  var dlg = document.getElementById("dlg");
+  document.getElementById("btn-comprar").addEventListener("click", function () {
+    var total = 0; piezas.forEach(function (p) { total += (carrito[p.id] || 0) * p.precio; });
+    document.getElementById("dlg-total").textContent = "Total: " + dinero(total);
+    document.getElementById("paso-form").hidden = false;
+    document.getElementById("paso-ok").hidden = true;
+    document.getElementById("err").textContent = "";
+    dlg.showModal();
+  });
+  document.getElementById("f-cancelar").addEventListener("click", function () { dlg.close(); });
+  document.getElementById("ok-cerrar").addEventListener("click", function () { dlg.close(); });
+
+  document.getElementById("form-compra").addEventListener("submit", async function (e) {
+    e.preventDefault();
+    var btn = document.getElementById("f-enviar"), err = document.getElementById("err");
+    err.textContent = ""; btn.disabled = true; btn.textContent = "Enviando…";
+    var items = Object.keys(carrito).map(function (id) { return { id: Number(id), cantidad: carrito[id] }; });
+    try {
+      var r = await fetch("/.netlify/functions/crear-pedido", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items: items, cliente: {
+          nombre: document.getElementById("f-nombre").value,
+          telefono: document.getElementById("f-tel").value,
+          direccion: document.getElementById("f-dir").value } })
+      });
+      var d = await r.json();
+      if (!r.ok) throw new Error(d.error || "No se pudo crear el pedido");
+      carrito = {}; actualizarCarrito();
+      document.getElementById("msg-ok").textContent = "Gracias. Tu pedido quedó registrado (n.º " + d.pedidos.join(", ") + "). Te contactaremos por WhatsApp.";
+      document.getElementById("paso-form").hidden = true;
+      document.getElementById("paso-ok").hidden = false;
+      document.getElementById("form-compra").reset();
+      cargar();
+    } catch (x) { err.textContent = x.message; }
+    btn.disabled = false; btn.textContent = "Confirmar pedido";
+  });
 
   async function cargar() {
-    var msg = document.getElementById("msg");
+    var msg = document.getElementById("msg") || document.createElement("div");
     try {
       var res = await fetch(SUPABASE_URL + "/rest/v1/piezas?select=*&activa=eq.true&order=created_at.asc", { headers:{ apikey:SUPABASE_KEY } });
       if (!res.ok) throw new Error("HTTP " + res.status);
